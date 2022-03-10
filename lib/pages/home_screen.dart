@@ -1,22 +1,15 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:grouped_list/grouped_list.dart';
 import 'package:intl/intl.dart';
 import 'package:rounded_loading_button/rounded_loading_button.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:showcaseview/showcaseview.dart';
 import 'package:todo_test_app/pages/home_components/drawer.dart';
+import 'package:todo_test_app/services/shared_perf_service.dart';
 import 'package:todo_test_app/widgets/input_helper.dart';
 import 'dart:math' as math;
-
-class HomeScreenShowcase extends StatelessWidget {
-  const HomeScreenShowcase({Key? key}) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    return ShowCaseWidget(
-      builder: Builder(builder: (_) => const HomeScreen()),
-    );
-  }
-}
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({Key? key}) : super(key: key);
@@ -33,7 +26,17 @@ class _HomeScreenState extends State<HomeScreen> {
 
   String? _date;
   String? _time;
-  List<Map<String, Object>> todoList = [];
+  List todoList = [];
+
+  @override
+  void initState() {
+    SharedService.getData().then((value) {
+      setState(() {
+        todoList = value;
+      });
+    });
+    super.initState();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -41,16 +44,7 @@ class _HomeScreenState extends State<HomeScreen> {
       resizeToAvoidBottomInset: false,
       endDrawer: const HomeDrawer(),
       appBar: AppBar(title: const Text("TODO LIST"), centerTitle: true),
-      body: todoList.isNotEmpty
-          ? groupedList()
-          : Center(
-              child: Text(
-                "Click on '+' icon to add a new task.",
-                style: TextStyle(
-                  fontSize: MediaQuery.of(context).size.width * .04,
-                ),
-              ),
-            ),
+      body: groupedList(),
       floatingActionButton: FloatingActionButton(
         onPressed: () {
           showModalBottomSheet(
@@ -99,51 +93,57 @@ class _HomeScreenState extends State<HomeScreen> {
         onDismissed: (direction) {
           setState(() {
             todoList.remove(listItem);
+            SharedService.setData(todoList);
           });
         },
-        child: Card(
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                height: 25,
-                width: 5,
-                color: listItem["startContainerColor"],
-              ),
-              Expanded(
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
-                  child: Opacity(
-                    opacity: listItem["isComplete"] ? 0.3 : 1,
-                    child: Row(
-                      children: [
-                        Expanded(child: Text(listItem["Description"])),
-                        const SizedBox(width: 10),
-                        Text(listItem["Time"]),
-                        Transform.scale(
-                          scale: 1.3,
-                          child: Checkbox(
-                            checkColor:
-                                Theme.of(context).colorScheme.background,
-                            fillColor: MaterialStateProperty.all(
-                                Theme.of(context).colorScheme.primary),
-                            value: listItem["isComplete"],
-                            shape: const CircleBorder(),
-                            onChanged: (bool? value) {
-                              setState(() {
-                                listItem["isComplete"] =
-                                    !listItem["isComplete"];
-                              });
-                            },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 5),
+          child: Card(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  height: MediaQuery.of(context).size.width * .08,
+                  width: MediaQuery.of(context).size.width * .010,
+                  color: stringToColor(listItem["startContainerColor"]),
+                ),
+                Expanded(
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
+                    child: Opacity(
+                      opacity: listItem["isComplete"] ? 0.3 : 1,
+                      child: Row(
+                        children: [
+                          Expanded(child: Text(listItem["Description"])),
+                          SizedBox(
+                              width: MediaQuery.of(context).size.width * .015),
+                          Text(listItem["Time"]),
+                          Transform.scale(
+                            scale: 1.3,
+                            child: Checkbox(
+                              checkColor:
+                                  Theme.of(context).colorScheme.background,
+                              fillColor: MaterialStateProperty.all(
+                                  Theme.of(context).colorScheme.primary),
+                              value: listItem["isComplete"],
+                              shape: const CircleBorder(),
+                              onChanged: (bool? value) {
+                                setState(() {
+                                  SharedService.setData(todoList);
+                                  listItem["isComplete"] =
+                                      !listItem["isComplete"];
+                                });
+                              },
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -195,6 +195,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       FocusScope.of(context).unfocus();
                       if (validataAndSave()) {
                         addTask();
+                        if (todoList.isNotEmpty) {}
                       } else {
                         _btnController.reset();
                       }
@@ -255,6 +256,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void addTask() {
     _btnController.success();
     Future.delayed(const Duration(seconds: 1)).then((_) => {
+          print(Color((math.Random().nextDouble() * 0xFFFFFF).toInt())),
           setState(() {
             todoList.add({
               "Date": _date ??
@@ -266,9 +268,11 @@ class _HomeScreenState extends State<HomeScreen> {
               "isComplete": false,
               "startContainerColor":
                   Color((math.Random().nextDouble() * 0xFFFFFF).toInt())
-                      .withOpacity(1.0),
+                      .withOpacity(1.0)
+                      .toString(),
             });
           }),
+          SharedService.setData(todoList),
           Navigator.of(context).pop(),
         });
   }
@@ -281,5 +285,12 @@ class _HomeScreenState extends State<HomeScreen> {
     } else {
       return false;
     }
+  }
+
+  Color stringToColor(String colorString) {
+    String valueString =
+        colorString.split('(0x')[1].split(')')[0]; // kind of hacky..
+    int value = int.parse(valueString, radix: 16);
+    return Color(value);
   }
 }
